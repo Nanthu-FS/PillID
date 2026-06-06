@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+@layer base {
+  body {
+    @apply text-ink font-body antialiased;
+    /* Soft layered backdrop: warm cream with faint sage light from the top */
+    background-color: #FBF9F3;
+    background-image:
+      radial-gradient(60rem 40rem at 50% -10%, rgba(123, 168, 136, 0.16), transparent 60%),
+      radial-gradient(40rem 30rem at 100% 0%, rgba(166, 194, 169, 0.12), transparent 55%);
+    background-attachment: fixed;
+    min-height: 100dvh;
+  }
+  h1, h2, h3, h4 {
+    @apply font-heading text-ink tracking-[-0.01em];
+  }
+  /* Visible focus ring for keyboard users (skill: focus-states) */
+  :focus-visible {
+    @apply outline-none ring-4 ring-sage-300/70 ring-offset-2 ring-offset-cream rounded-lg;
+  }
+  ::selection {
+    @apply bg-sage-200 text-sage-900;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-white/70 bg-white/85 backdrop-blur-sm;
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+      0 2px 8px -3px rgba(44, 58, 46, 0.10),
+      0 12px 28px -12px rgba(44, 58, 46, 0.14);
+  }
+  .card-interactive {
+    @apply transition-all duration-300 hover:-translate-y-0.5;
+  }
+  .card-interactive:hover {
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+      0 6px 14px -4px rgba(44, 58, 46, 0.12),
+      0 20px 40px -16px rgba(44, 58, 46, 0.20);
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3
+           font-medium min-h-[48px] transition-all duration-200
+           focus-visible:ring-4 focus-visible:ring-sage-300 cursor-pointer
+           active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply btn text-white;
+    background-image: linear-gradient(180deg, #6B9476 0%, #5B8266 55%, #4A6B54 100%);
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.25) inset, 0 8px 18px -8px rgba(59, 85, 68, 0.55);
+  }
+  .btn-primary:hover {
+    background-image: linear-gradient(180deg, #75A081 0%, #557C61 55%, #44624E 100%);
+  }
+  .btn-secondary {
+    @apply btn bg-sage-100 text-sage-800 hover:bg-sage-200 border border-sage-200/70;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-sage-700 hover:bg-sage-50;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-sage-600;
+  }
+  /* Skeleton shimmer for >300ms loads (skill: progressive-loading) */
+  .skeleton {
+    @apply relative overflow-hidden bg-sage-100/60 rounded-lg;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+  /* Decorative soft blob for ambient depth (purely cosmetic, aria-hidden) */
+  .blob {
+    @apply pointer-events-none absolute -z-10 rounded-full blur-3xl opacity-50;
+  }
+}
+
+@layer utilities {
+  .stagger > * {
+    animation: fade-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger > *:nth-child(4) { animation-delay: 180ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  body { background-attachment: scroll; }
+}
