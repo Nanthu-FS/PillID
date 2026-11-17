@@ -48,11 +48,60 @@ export async function modelJSON<S extends z.ZodType>(opts: ModelJSONOpts<S>): Pr
   return result.output as z.infer<S>;
 }
 
-/** A message that is safe to show a user; details stay in the server log. */
+/** Walk wrapped errors (retries, causes) to find the gateway's error type and status. */
+function gatewayFailure(err: unknown): { type?: string; status?: number; name?: string } {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  let name: string | undefined;
+  while (cur && typeof cur === 'object' && !seen.has(cur)) {
+    seen.add(cur);
+    const e = cur as { type?: unknown; statusCode?: unknown; name?: unknown; cause?: unknown; lastError?: unknown };
+    name ??= typeof e.name === 'string' ? e.name : undefined;
+    if (typeof e.type === 'string' || typeof e.statusCode === 'number') {
+      return {
+        type: typeof e.type === 'string' ? e.type : undefined,
+        status: typeof e.statusCode === 'number' ? e.statusCode : undefined,
+        name,
+      };
+    }
+    cur = e.lastError ?? e.cause;
+  }
+  return { name };
+}
+
+/**
+ * A message that is safe to show a user and says which kind of failure it was.
+ * It names configuration problems but never includes provider output; the full
+ * error goes to the server log.
+ */
 export function modelErrorMessage(err: unknown): string {
   console.error('[PillID] model call failed:', err);
-  if (err instanceof Error && /abort|timeout/i.test(`${err.name} ${err.message}`)) {
+  const model = process.env.AI_GATEWAY_MODEL?.trim() || DEFAULT_MODEL;
+  const { type, status, name } = gatewayFailure(err);
+
+  if (type === 'model_not_found') {
+    return `AI Gateway has no model called "${model}". Set AI_GATEWAY_MODEL to an exact ID from the gateway's model list.`;
+  }
+  if (type === 'authentication_error' || status === 401) {
+    return 'AI Gateway rejected this app’s credentials. Enable AI Gateway for the Vercel project, or set AI_GATEWAY_API_KEY.';
+  }
+  if (status === 402) {
+    return 'AI Gateway has no credit or budget left for this request.';
+  }
+  if (type === 'forbidden' || status === 403) {
+    return 'AI Gateway refused this request. The Vercel account may need a payment method, or the model may be restricted.';
+  }
+  if (type === 'rate_limit_exceeded' || status === 429) {
+    return 'The model is rate-limited right now. Please try again in a minute.';
+  }
+  if (type === 'invalid_request_error' || status === 400) {
+    return `The model "${model}" rejected the request. It may not accept images or structured output.`;
+  }
+  if (name === 'AI_NoObjectGeneratedError' || name === 'AI_NoOutputGeneratedError') {
+    return 'The model answered, but not in the expected format. Please try again.';
+  }
+  if (type === 'timeout_error' || (err instanceof Error && /abort|timeout/i.test(`${err.name} ${err.message}`))) {
     return 'The model took too long to respond. Please try again.';
   }
-  return 'The model could not complete this request. Please try again.';
+  return `The model could not complete this request${status ? ` (gateway status ${status})` : ''}. Please try again.`;
 }
