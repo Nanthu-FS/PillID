@@ -7,6 +7,8 @@ import type { Medication } from '@/lib/types';
 
 export default function CabinetPage() {
   const [meds, setMeds] = useState<Medication[] | null>(null);
+  // Photos are private: each is shown through a short-lived signed URL.
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -14,8 +16,21 @@ export default function CabinetPage() {
       .from('medications')
       .select('*')
       .order('created_at', { ascending: false });
-    if (error) setError(error.message);
-    else setMeds(data as Medication[]);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    const rows = data as Medication[];
+    setMeds(rows);
+
+    const paths = rows.map((m) => m.image_path).filter((p): p is string => Boolean(p));
+    if (paths.length === 0) return;
+    const { data: signed } = await supabase.storage.from(PILL_BUCKET).createSignedUrls(paths, 3600);
+    const urls: Record<string, string> = {};
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) urls[s.path] = s.signedUrl;
+    }
+    setPhotoUrls(urls);
   }
 
   useEffect(() => {
@@ -24,8 +39,13 @@ export default function CabinetPage() {
 
   async function remove(id: string, image_path: string | null) {
     if (!confirm('Remove this medication from your cabinet?')) return;
-    setMeds((prev) => prev?.filter((m) => m.id !== id) ?? null); // optimistic
-    await supabase.from('medications').delete().eq('id', id);
+    setError(null);
+    const { error } = await supabase.from('medications').delete().eq('id', id);
+    if (error) {
+      setError(`Could not remove it: ${error.message}`);
+      return;
+    }
+    setMeds((prev) => prev?.filter((m) => m.id !== id) ?? null);
     if (image_path) await supabase.storage.from(PILL_BUCKET).remove([image_path]);
   }
 
@@ -73,7 +93,11 @@ export default function CabinetPage() {
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {meds.map((m) => (
             <li key={m.id}>
-              <MedCard med={m} onRemove={() => remove(m.id, m.image_path)} />
+              <MedCard
+                med={m}
+                imgUrl={m.image_path ? photoUrls[m.image_path] ?? null : null}
+                onRemove={() => remove(m.id, m.image_path)}
+              />
             </li>
           ))}
         </ul>
@@ -82,10 +106,15 @@ export default function CabinetPage() {
   );
 }
 
-function MedCard({ med, onRemove }: { med: Medication; onRemove: () => void }) {
-  const imgUrl = med.image_path
-    ? supabase.storage.from(PILL_BUCKET).getPublicUrl(med.image_path).data.publicUrl
-    : null;
+function MedCard({
+  med,
+  imgUrl,
+  onRemove,
+}: {
+  med: Medication;
+  imgUrl: string | null;
+  onRemove: () => void;
+}) {
   const facts = [med.strength, med.dosage_form, med.color, med.shape].filter(Boolean).join(' · ');
 
   return (

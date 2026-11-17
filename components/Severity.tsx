@@ -6,12 +6,6 @@ const META: Record<Severity, { label: string; cls: string }> = {
   major: { label: 'Major', cls: 'bg-major-bg text-major-fg ring-1 ring-major-ring' },
 };
 
-const RANK: Record<Severity, number> = { major: 3, moderate: 2, minor: 1 };
-
-export function severityRank(s: Severity) {
-  return RANK[s];
-}
-
 export function SeverityBadge({ severity }: { severity: Severity }) {
   const m = META[severity];
   return (

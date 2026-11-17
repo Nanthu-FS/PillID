@@ -2,18 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, postJSON } from '@/lib/supabaseClient';
 import { Disclaimer } from '@/components/Disclaimer';
-import { SeverityBadge, severityRank } from '@/components/Severity';
-import type { InteractionFinding, Medication } from '@/lib/types';
+import { SeverityBadge } from '@/components/Severity';
+import type { InteractionResult, Medication } from '@/lib/types';
 
 type Status = 'loading' | 'ready' | 'checking' | 'done' | 'error';
 
 export default function InteractionsPage() {
   const [meds, setMeds] = useState<Medication[]>([]);
   const [status, setStatus] = useState<Status>('loading');
-  const [findings, setFindings] = useState<InteractionFinding[] | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [result, setResult] = useState<InteractionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,31 +31,20 @@ export default function InteractionsPage() {
     })();
   }, []);
 
+  // The server reads the cabinet itself, so nothing needs to be sent.
   async function check() {
     setStatus('checking');
     setError(null);
-    setNote(null);
     try {
-      const res = await fetch('/api/interactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          meds: meds.map((m) => ({ name: m.name, label_data: m.label_data })),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      const sorted = (json.findings as InteractionFinding[]).sort(
-        (a, b) => severityRank(b.severity) - severityRank(a.severity),
-      );
-      setFindings(sorted);
-      setNote(json.note ?? null);
+      setResult(await postJSON<InteractionResult>('/api/interactions'));
       setStatus('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus('error');
     }
   }
+
+  const names = [...new Set(meds.map((m) => m.name.trim().toLowerCase()))];
 
   return (
     <div className="space-y-5">
@@ -71,11 +59,11 @@ export default function InteractionsPage() {
 
       {status === 'loading' && <div className="skeleton h-24 w-full" />}
 
-      {meds.length < 2 && status !== 'loading' && (
+      {names.length < 2 && status !== 'loading' && status !== 'error' && (
         <div className="card p-8 text-center">
           <p className="font-medium text-ink">Add at least two medications</p>
           <p className="mt-1 text-sm text-ink-faint">
-            Interaction checks need two or more saved medications.
+            Interaction checks need two or more different saved medications.
           </p>
           <Link href="/" className="btn-primary mt-4">
             Scan a pill
@@ -83,16 +71,16 @@ export default function InteractionsPage() {
         </div>
       )}
 
-      {meds.length >= 2 && (
+      {names.length >= 2 && (
         <div className="card p-5 space-y-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-              Checking {meds.length} medications
+              Checking {names.length} medications
             </p>
             <ul className="mt-2 flex flex-wrap gap-2">
-              {meds.map((m) => (
-                <li key={m.id} className="chip bg-sage-50 capitalize text-sage-800">
-                  {m.name}
+              {names.map((n) => (
+                <li key={n} className="chip bg-sage-50 capitalize text-sage-800">
+                  {n}
                 </li>
               ))}
             </ul>
@@ -100,7 +88,7 @@ export default function InteractionsPage() {
 
           {status !== 'done' && (
             <button className="btn-primary" onClick={check} disabled={status === 'checking'}>
-              {status === 'checking' ? 'Checking with gemma4:12b…' : 'Run interaction check'}
+              {status === 'checking' ? 'Checking the labels…' : 'Run interaction check'}
             </button>
           )}
 
@@ -117,53 +105,76 @@ export default function InteractionsPage() {
         <div role="alert" className="card border-major-ring bg-major-bg p-4 text-major-fg">
           <p className="font-medium">Interaction check failed</p>
           <p className="mt-1 text-sm">{error}</p>
-          <button className="btn-secondary mt-3" onClick={check}>
-            Try again
-          </button>
+          {names.length >= 2 && (
+            <button className="btn-secondary mt-3" onClick={check}>
+              Try again
+            </button>
+          )}
         </div>
       )}
 
-      {status === 'done' && findings && (
-        <Results findings={findings} note={note} onRecheck={check} />
-      )}
+      {status === 'done' && result && <Results result={result} onRecheck={check} />}
     </div>
   );
 }
 
-function Results({
-  findings,
-  note,
-  onRecheck,
-}: {
-  findings: InteractionFinding[];
-  note: string | null;
-  onRecheck: () => void;
-}) {
+function Results({ result, onRecheck }: { result: InteractionResult; onRecheck: () => void }) {
+  const { findings, checked, unchecked, truncated } = result;
+  // "Nothing flagged" is only a fair summary if every label was actually read in full.
+  const complete = unchecked.length === 0 && truncated.length === 0;
+
   return (
     <section className="space-y-3 animate-fade-up">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">
-          {findings.length === 0
-            ? 'No interactions found'
-            : `${findings.length} potential interaction${findings.length === 1 ? '' : 's'}`}
+          {findings.length > 0
+            ? `${findings.length} potential interaction${findings.length === 1 ? '' : 's'}`
+            : complete
+              ? 'Nothing flagged'
+              : 'Check incomplete'}
         </h2>
         <button className="btn-ghost px-3 py-2 text-sm" onClick={onRecheck}>
           Re-check
         </button>
       </div>
 
-      {findings.length === 0 && (
-        <div className="card border-sage-200 bg-sage-50/60 p-5 text-sage-800">
-          <p className="font-medium">Nothing flagged in the FDA label text.</p>
-          <p className="mt-1 text-sm">
-            {note ??
-              'This is not a guarantee of safety — labels don’t list every interaction. Always confirm with a pharmacist.'}
+      {!complete && (
+        <div role="alert" className="card border-moderate-ring bg-moderate-bg p-4 text-moderate-fg">
+          <p className="font-medium">Some medications could not be fully checked</p>
+          <ul className="mt-1.5 space-y-1 text-sm">
+            {unchecked.map((u) => (
+              <li key={u.drug}>
+                <span className="font-medium capitalize">{u.drug}</span> — not checked: {u.reason}.
+              </li>
+            ))}
+            {truncated.map((d) => (
+              <li key={d}>
+                <span className="font-medium capitalize">{d}</span> — its label was too long, so only
+                the first part was checked.
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-sm">
+            Interactions involving these may be missing. Ask a pharmacist about them.
           </p>
         </div>
       )}
 
-      {findings.map((f, i) => (
-        <article key={i} className="card p-4 space-y-2">
+      {findings.length === 0 && checked.length > 0 && (
+        <div className="card border-sage-200 bg-sage-50/60 p-5 text-sage-800">
+          <p className="font-medium">
+            Nothing flagged in the FDA label text for{' '}
+            <span className="capitalize">{checked.join(', ')}</span>.
+          </p>
+          <p className="mt-1 text-sm">
+            This is not a guarantee of safety — labels don’t list every interaction. Always confirm
+            with a pharmacist.
+          </p>
+        </div>
+      )}
+
+      {findings.map((f) => (
+        <article key={`${f.drug_a}|${f.drug_b}`} className="card p-4 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <p className="font-heading font-semibold capitalize text-ink">
               {f.drug_a} <span className="text-ink-faint">+</span> {f.drug_b}
@@ -171,11 +182,31 @@ function Results({
             <SeverityBadge severity={f.severity} />
           </div>
           <p className="text-sm leading-relaxed text-ink-soft">{f.summary}</p>
-          <p className="text-xs text-ink-faint">
-            Grounded in the FDA label for <span className="capitalize">{f.source_drug}</span>.
-          </p>
+          {f.sources.map((s) => (
+            <figure key={s.drug} className="rounded-lg bg-cream-200/60 px-3 py-2">
+              <blockquote className="text-sm leading-relaxed text-ink-soft">“{s.quote}”</blockquote>
+              <figcaption className="mt-1 text-xs text-ink-faint">
+                {s.verified ? (
+                  <>
+                    Quoted from the FDA label for <span className="capitalize">{s.drug}</span>.
+                  </>
+                ) : (
+                  <>
+                    Attributed to the FDA label for <span className="capitalize">{s.drug}</span>, but
+                    this wording could not be matched to the label — treat with extra caution.
+                  </>
+                )}
+              </figcaption>
+            </figure>
+          ))}
         </article>
       ))}
+
+      {findings.length > 0 && (
+        <p className="text-xs text-ink-faint">
+          Severity levels are an AI estimate. FDA labels describe interactions but do not grade them.
+        </p>
+      )}
     </section>
   );
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Figtree, Noto_Sans } from 'next/font/google';
 import './globals.css';
 import { Nav } from '@/components/Nav';
+import { AuthGate } from '@/components/AuthGate';
 
 const figtree = Figtree({
   subsets: ['latin'],
@@ -20,7 +21,7 @@ const notoSans = Noto_Sans({
 export const metadata: Metadata = {
   title: 'PillID — your calm medicine cabinet',
   description:
-    'Identify pills from a photo and check interactions across your medicine cabinet. Runs locally with gemma4:12b; grounded in openFDA labels.',
+    'Identify pills from a photo and check interactions across your medicine cabinet. Drug facts are grounded in openFDA labels and RxNorm.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <Nav />
         <main id="main" className="relative mx-auto w-full max-w-3xl px-4 pb-28 pt-6 sm:px-6">
-          {children}
+          <AuthGate>{children}</AuthGate>
         </main>
       </body>
     </html>

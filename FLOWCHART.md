@@ -1,48 +1,48 @@
 # PillID — How it works
 
-End-to-end flow. The vision model runs **locally** (gemma4:12b via Ollama); all drug
-facts are **grounded** in public data (openFDA labels + RxNorm). The model never invents
-warnings or interactions.
+A hosted vision model (through Vercel AI Gateway) reads the photo and suggests a name.
+Every drug fact shown comes from public data (openFDA labels + RxNorm), and the user
+confirms the name against the packaging before anything is saved.
 
 ```mermaid
 flowchart TD
-    U([User]) -->|photo of one pill| SCAN[Scan screen]
-    SCAN -->|base64 image| ID["/api/identify"]
+    U([Signed-in user]) -->|photo of one pill| SCAN[Scan screen<br/>photo downsized in browser]
+    SCAN -->|JPEG + access token| ID["/api/identify<br/>auth · daily limit · image checks"]
 
-    subgraph LOCAL["On-device (Ollama)"]
-        GV["gemma4:12b — vision<br/>reads imprint · shape · color<br/>best-guess name + confidence"]
+    subgraph MODEL["Hosted model (Vercel AI Gateway)"]
+        GV["vision read<br/>imprint · shape · color<br/>best-guess name"]
+        GX["label reader<br/>one call per drug label<br/>must quote the label"]
     end
     subgraph PUBLIC["Public reference data"]
-        RX["RxNorm / RxNav<br/>name → canonical + rxcui"]
+        RX["RxNorm / RxNav<br/>name → canonical name + rxcui"]
         FDA["openFDA drug label<br/>purpose · warnings · interactions"]
     end
 
     ID --> GV
     GV -->|guessed name| RX
-    GV -->|guessed name| FDA
-    RX --> RESULT
-    FDA --> RESULT
-    GV --> RESULT[Result card<br/>confidence ring + label]
+    RX -->|canonical name| FDA
+    FDA --> RESULT[Result card<br/>guess + FDA label]
+    RESULT -->|wrong? user types the name| LK["/api/lookup<br/>RxNorm + openFDA only"]
+    LK --> RESULT
 
-    RESULT -->|Add to cabinet| SB[(Supabase<br/>medications + pill-images)]
+    RESULT -->|user confirms| SB[(Supabase<br/>medications · private pill-images<br/>row-level security per user)]
     SB --> CAB[Cabinet grid]
 
-    CAB -->|2+ meds| IX["/api/interactions"]
-    IX -->|per-med label text| FDA2["openFDA interaction text"]
-    FDA2 --> GX["gemma4:12b — reasoning<br/>cross-reference cabinet<br/>vs FDA text only"]
-    GX --> OUT[Interaction results<br/>minor · moderate · major]
+    CAB -->|2+ meds| IX["/api/interactions<br/>reads the cabinet server-side"]
+    IX --> GX
+    GX -->|quotes checked against label text| OUT[Findings with quotes<br/>+ list of anything not checked]
 
     classDef ui fill:#FFFFFF,stroke:#A6C2A9,stroke-width:2px,color:#2C3A2E;
     classDef api fill:#3C5544,stroke:#3C5544,color:#FFFFFF;
-    classDef local fill:#5B8266,stroke:#4A6B54,color:#FFFFFF;
+    classDef model fill:#5B8266,stroke:#4A6B54,color:#FFFFFF;
     classDef data fill:#FBF3E2,stroke:#E6C77E,color:#92651B;
     classDef cloud fill:#ECFEFF,stroke:#22D3EE,color:#155E75;
     classDef out fill:#F1F5F1,stroke:#7BA888,color:#2F4336;
 
     class SCAN,CAB,RESULT ui;
-    class ID,IX api;
-    class GV,GX local;
-    class RX,FDA,FDA2 data;
+    class ID,IX,LK api;
+    class GV,GX model;
+    class RX,FDA data;
     class SB cloud;
     class OUT out;
 ```
@@ -51,10 +51,12 @@ flowchart TD
 
 | Stage | Who decides | Source of truth |
 |-------|-------------|-----------------|
-| Read the pill | `gemma4:12b` (local vision) | the photo only |
+| Read the pill | hosted vision model | the photo only — a suggestion, not an identification |
+| Final name | **the user**, against the packaging | the packaging |
 | Canonical name + `rxcui` | RxNorm / RxNav | NIH RxNorm |
 | Purpose / warnings / interaction text | openFDA | FDA drug labels |
-| Interaction pairs + severity | `gemma4:12b` *matches & scores* | **only** the openFDA label text provided |
+| Which cabinet drugs a label warns about | model, one label at a time | that label's text; each finding carries a quote that is checked against the label |
+| Severity | model estimate | none — FDA labels do not grade interactions, and the UI says so |
 
 > The NIH RxNav **Drug Interaction API** was retired in Jan 2024, so interaction warnings are
 > grounded in each drug's openFDA label text rather than a dedicated interaction endpoint.
