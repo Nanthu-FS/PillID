@@ -34,9 +34,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        {/* Ambient decorative blobs (cosmetic only) */}
-        <div aria-hidden className="blob left-[-6rem] top-24 h-72 w-72 bg-sage-200" />
-        <div aria-hidden className="blob right-[-8rem] top-[28rem] h-80 w-80 bg-sage-100" />
+        {/* Ambient decorative blobs (cosmetic only). The wrapper clips them: they
+            hang off the screen edge, and unclipped they make the page wider than
+            the phone, which pushes the fixed bottom nav off-screen. */}
+        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div className="blob left-[-6rem] top-24 h-72 w-72 bg-sage-200" />
+          <div className="blob right-[-8rem] top-[28rem] h-80 w-80 bg-sage-100" />
+        </div>
 
         <Nav />
         <main id="main" className="relative mx-auto w-full max-w-3xl px-4 pb-28 pt-6 sm:px-6">

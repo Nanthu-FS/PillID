@@ -7,6 +7,10 @@
 }
 
 @layer base {
+  html {
+    /* Never let stray content widen the page beyond the screen. */
+    overflow-x: hidden;
+  }
   body {
     @apply text-ink font-body antialiased;
     /* Soft layered backdrop: warm cream with faint sage light from the top */

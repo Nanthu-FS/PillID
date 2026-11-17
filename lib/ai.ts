@@ -49,19 +49,20 @@ export async function modelJSON<S extends z.ZodType>(opts: ModelJSONOpts<S>): Pr
 }
 
 /** Walk wrapped errors (retries, causes) to find the gateway's error type and status. */
-function gatewayFailure(err: unknown): { type?: string; status?: number; name?: string } {
+function gatewayFailure(err: unknown): { type?: string; status?: number; name?: string; message?: string } {
   const seen = new Set<unknown>();
   let cur: unknown = err;
   let name: string | undefined;
   while (cur && typeof cur === 'object' && !seen.has(cur)) {
     seen.add(cur);
-    const e = cur as { type?: unknown; statusCode?: unknown; name?: unknown; cause?: unknown; lastError?: unknown };
+    const e = cur as { type?: unknown; statusCode?: unknown; name?: unknown; message?: unknown; cause?: unknown; lastError?: unknown };
     name ??= typeof e.name === 'string' ? e.name : undefined;
     if (typeof e.type === 'string' || typeof e.statusCode === 'number') {
       return {
         type: typeof e.type === 'string' ? e.type : undefined,
         status: typeof e.statusCode === 'number' ? e.statusCode : undefined,
         name,
+        message: typeof e.message === 'string' ? e.message : undefined,
       };
     }
     cur = e.lastError ?? e.cause;
@@ -77,7 +78,8 @@ function gatewayFailure(err: unknown): { type?: string; status?: number; name?: 
 export function modelErrorMessage(err: unknown): string {
   console.error('[PillID] model call failed:', err);
   const model = process.env.AI_GATEWAY_MODEL?.trim() || DEFAULT_MODEL;
-  const { type, status, name } = gatewayFailure(err);
+  const { type, status, name, message } = gatewayFailure(err);
+  const detail = message?.replace(/\s+/g, ' ').trim().slice(0, 400);
 
   if (type === 'model_not_found') {
     return `AI Gateway has no model called "${model}". Set AI_GATEWAY_MODEL to an exact ID from the gateway's model list.`;
@@ -89,7 +91,9 @@ export function modelErrorMessage(err: unknown): string {
     return 'AI Gateway has no credit or budget left for this request.';
   }
   if (type === 'forbidden' || status === 403) {
-    return 'AI Gateway refused this request. The Vercel account may need a payment method, or the model may be restricted.';
+    // The gateway's own explanation says what the account owner must do
+    // (add a payment method, lift a rule, …), so pass it on.
+    return `AI Gateway refused this request (403)${detail ? `: ${detail}` : '. The Vercel account may need a payment method, or the model may be restricted.'}`;
   }
   if (type === 'rate_limit_exceeded' || status === 429) {
     return 'The model is rate-limited right now. Please try again in a minute.';
